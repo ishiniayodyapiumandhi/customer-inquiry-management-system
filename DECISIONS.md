@@ -1,29 +1,41 @@
-# Decisions
+# Design Decisions
 
 ## Scope and assumptions
 
-Threadline models a small service desk where each staff member owns the inquiries they record. The brief did not require shared queues or roles, so the simpler ownership rule keeps access predictable and demonstrates authorization clearly. Two seeded staff accounts make the rule easy to demonstrate.
+Threadline is designed for a small service desk. A staff member signs in, records a customer inquiry, finds it through search or status filters, and moves it through its lifecycle. Registration, external messaging, roles, and a shared queue were intentionally left out because they are outside the minimum workflow.
 
-## Meaningful choices
+## Ownership and access
 
-**Ownership is server-enforced.** Every inquiry list, detail, and status update includes the authenticated user's `owner_id` in its SQL predicate. A user who guesses another inquiry's ID receives the same not-found style response as any inaccessible record. This prevents a direct-link bypass.
+Each inquiry belongs to the staff member who created it. Staff can view and update only their own inquiries. This is a deliberately simple access rule that is easy to explain and appropriate for the assessment's two seeded accounts.
 
-**Validation exists at both boundaries.** The form provides native required/minimum-length guidance for fast feedback, while the API uses Zod and rejects the request independently. Duplicate submissions are accepted as separate records because the business has no reliable inquiry key; staff can distinguish them by contact, subject, and timestamps without a risky deduplication guess.
+Authorization is enforced by the API, not just the React interface. The list, detail, and status-update queries all include the authenticated user's `owner_id`. A user who guesses another inquiry's ID receives a not-found response, so a direct URL cannot bypass the access rule.
 
-**Status changes are deliberately simple.** New, In progress, and Resolved are all selectable, including reopening a resolved inquiry. Real customer conversations can resume, and requiring a separate reopen workflow would add complexity without improving this assessment's core workflow. Every change updates `updated_at` and is saved immediately.
+## Validation and duplicate submissions
+
+Validation happens at both boundaries. The frontend uses required fields and minimum lengths to guide the user quickly. The API independently validates the payload with Zod, so requests made outside the UI are still rejected.
+
+Duplicate submissions are stored as separate inquiries. There is no reliable business key for deciding whether two customer messages are duplicates, and automatic merging could lose information. Staff can distinguish records using the customer, subject, contact details, and timestamps.
+
+## Status lifecycle
+
+An inquiry can be `New`, `In progress`, or `Resolved`. Any of these states can be selected, including reopening a resolved inquiry. Customers may return with a follow-up request, so a separate reopen workflow would add complexity without improving this small system. Each status change is validated by the API and immediately updates `updated_at`.
 
 ## Stale data trade-off
 
-The list is refreshed when the selected status filter changes and after a local mutation, but there is no realtime synchronization. If two tabs show the same inquiry, the later save wins and the older tab may display stale data until refreshed. This is an intentional ten-hour-scale trade-off: the UI makes successful saves visible, while avoiding websockets or optimistic concurrency that the brief does not need. A next iteration could add an `updated_at`/version precondition and return `409 Conflict` for stale writes.
+The application does not use realtime updates. If two tabs show the same inquiry, one tab can become stale after the other changes its status. The latest successful update wins, and the older tab sees the new state after a refresh or filter change.
 
-## Failure behavior
+This trade-off keeps the implementation appropriate for the requested scope and avoids adding websockets or complex conflict resolution. A production version could add an `updated_at` or version precondition and return `409 Conflict` when a user tries to save an outdated record.
 
-Unauthenticated API requests return `401`; invalid IDs return `400`; missing or inaccessible records return `404`; invalid input returns `400` with a general message and field information. The UI shows loading, empty, success, and error states rather than silently failing.
+## Failure behavior and testing
 
-## What I would improve next
+The API returns predictable responses: `401` for missing or invalid authentication, `400` for invalid IDs or payloads, and `404` for missing or inaccessible inquiries. The UI provides loading, empty, success, network-error, and validation-error states.
 
-I would add an integration test against PostgreSQL for ownership and status updates, then add a small activity history table so staff can see who changed a status and when. A shared queue/role model would be the next product decision once the business clarifies whether inquiries are personal or team-owned.
+The backend tests cover independent inquiry validation, and the frontend test covers failed-login feedback. The main remaining gap is a live PostgreSQL integration test covering ownership and status updates. That would be the first addition to a CI pipeline.
+
+## Next improvements
+
+I would add an activity history so staff can see who changed a status and when. After the business clarifies whether inquiries should be personal or team-owned, I would consider shared queues and roles. I would also add the PostgreSQL integration tests before introducing more features.
 
 ## AI transparency
 
-AI helped draft the initial project structure, API/UI boilerplate, and test scaffolding. I accepted the small REST shape and the owner-scoped SQL queries, but evaluated and changed the generated seed password hash after verifying it against the documented demo password. I also kept the feature set intentionally narrow rather than adding unrelated dashboard features.
+AI assisted with the initial project structure, API/UI boilerplate, and test scaffolding. I accepted the small REST design and owner-scoped SQL approach after reviewing how they map to the requirements. I changed the generated seed password hash after verifying it against the documented demo password, and rejected unrelated dashboard features to keep the submission focused and explainable.
