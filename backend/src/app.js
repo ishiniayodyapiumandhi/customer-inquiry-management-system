@@ -74,5 +74,5 @@ app.patch('/api/inquiries/:id/status', requireAuth, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-app.use((error, _req, res, _next) => { console.error(error); res.status(500).json({ error: 'Something went wrong on the server.' }); });
+app.use((error, _req, res, _next) => { console.error(error); const databaseError = ['28P01', 'ECONNREFUSED', 'ENOTFOUND'].includes(error.code); res.status(500).json({ error: databaseError ? 'Database unavailable. Check the backend DATABASE_URL and PostgreSQL service.' : 'Something went wrong on the server.' }); });
 export { app, requireAuth };

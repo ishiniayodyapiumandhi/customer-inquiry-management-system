@@ -8,7 +8,12 @@ const labels = { new: 'New', in_progress: 'In progress', resolved: 'Resolved' };
 
 async function request(path: string, options: RequestInit = {}) {
   const token = localStorage.getItem('threadline_token');
-  const response = await fetch(`${API}${path}`, { ...options, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...options.headers } });
+  let response: Response;
+  try {
+    response = await fetch(`${API}${path}`, { ...options, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...options.headers } });
+  } catch {
+    throw new Error('Unable to reach the API. Check that the backend is running.');
+  }
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.error || 'Request failed.');
   return body;
@@ -20,8 +25,19 @@ function Login({ onLogin }: { onLogin: (token: string, user: User) => void }) {
   return <main className="login-shell"><section className="login-art"><div className="brand-mark">T</div><p className="eyebrow">Customer operations</p><h1>Keep every conversation moving.</h1><p className="muted-light">A focused place for the people behind the service desk.</p></section><section className="login-panel"><div className="login-copy"><p className="eyebrow">Welcome back</p><h2>Sign in to Threadline</h2><p className="muted">Use a staff account to access your assigned inquiries.</p></div><form onSubmit={submit} className="stack"><label>Email<input value={email} onChange={e => setEmail(e.target.value)} type="email" autoComplete="email" required /></label><label>Password<input value={password} onChange={e => setPassword(e.target.value)} type="password" autoComplete="current-password" required /></label>{error && <div className="error-box"><CircleAlert size={18} />{error}</div>}<button className="primary-button" disabled={busy}>{busy ? 'Signing in...' : 'Sign in'}<ChevronRight size={18} /></button></form><p className="demo-note">Demo: maya@example.com / password123</p></section></main>;
 }
 
+function readStoredUser(): User | null {
+  try {
+    const stored = localStorage.getItem('threadline_user');
+    return stored ? JSON.parse(stored) : null;
+  } catch {
+    localStorage.removeItem('threadline_user');
+    localStorage.removeItem('threadline_token');
+    return null;
+  }
+}
+
 function App() {
-  const [token, setToken] = useState(localStorage.getItem('threadline_token')); const [user, setUser] = useState<User | null>(() => JSON.parse(localStorage.getItem('threadline_user') || 'null'));
+  const [token, setToken] = useState(localStorage.getItem('threadline_token')); const [user, setUser] = useState<User | null>(readStoredUser);
   if (!token || !user) return <Login onLogin={(nextToken, nextUser) => { localStorage.setItem('threadline_token', nextToken); localStorage.setItem('threadline_user', JSON.stringify(nextUser)); setToken(nextToken); setUser(nextUser); }} />;
   return <Workspace user={user} onLogout={() => { localStorage.clear(); setToken(null); setUser(null); }} />;
 }
@@ -31,8 +47,8 @@ function Workspace({ user, onLogout }: { user: User; onLogout: () => void }) {
   async function load() { setLoading(true); setError(''); try { const result = await request(`/inquiries${status === 'all' ? '' : `?status=${status}`}`); setInquiries(result.inquiries); } catch (e) { setError((e as Error).message); } finally { setLoading(false); } }
   useEffect(() => { load(); }, [status]);
   const visible = inquiries.filter(item => `${item.customerName} ${item.subject} ${item.contact}`.toLowerCase().includes(search.toLowerCase()));
-  async function createInquiry(data: Record<string, string>) { try { const result = await request('/inquiries', { method: 'POST', body: JSON.stringify(data) }); setInquiries(items => [result.inquiry, ...items]); setShowForm(false); setNotice('Inquiry captured successfully.'); } catch (e) { throw e; } }
-  async function changeStatus(next: Inquiry['status']) { if (!selected) return; try { const result = await request(`/inquiries/${selected.id}/status`, { method: 'PATCH', body: JSON.stringify({ status: next }) }); setSelected(result.inquiry); setInquiries(items => items.map(item => item.id === result.inquiry.id ? result.inquiry : item)); setNotice('Status updated.'); } catch (e) { setError((e as Error).message); } }
+  async function createInquiry(data: Record<string, string>) { try { const result = await request('/inquiries', { method: 'POST', body: JSON.stringify(data) }); if (status === 'all' || status === 'new') setInquiries(items => [result.inquiry, ...items]); setShowForm(false); setNotice('Inquiry captured successfully.'); } catch (e) { throw e; } }
+  async function changeStatus(next: Inquiry['status']) { if (!selected) return; try { const result = await request(`/inquiries/${selected.id}/status`, { method: 'PATCH', body: JSON.stringify({ status: next }) }); setSelected(result.inquiry); setInquiries(items => { const updated = items.map(item => item.id === result.inquiry.id ? result.inquiry : item); return status !== 'all' && status !== next ? updated.filter(item => item.id !== result.inquiry.id) : updated; }); setNotice('Status updated.'); } catch (e) { setError((e as Error).message); } }
   return <div className="app-shell"><header className="topbar"><div className="brand"><span className="brand-mark small">T</span><span>Threadline</span></div><div className="top-actions"><span className="user-chip"><UserRound size={16} />{user.name}</span><button className="text-button" onClick={onLogout}><LogOut size={16} />Sign out</button></div></header><main className="workspace"><div className="page-heading"><div><p className="eyebrow">My workspace</p><h1>Customer inquiries</h1><p className="muted">A calm view of what needs your attention next.</p></div><button className="primary-button" onClick={() => setShowForm(true)}><MessageSquarePlus size={18} />New inquiry</button></div>{notice && <div className="notice"><CheckCircle2 size={18} />{notice}<button onClick={() => setNotice('')}>Dismiss</button></div>}{error && <div className="error-box"><CircleAlert size={18} />{error}<button onClick={() => setError('')}>Dismiss</button></div>}<section className="toolbar"><div className="search-box"><Search size={18} /><input placeholder="Search name, subject or contact" value={search} onChange={e => setSearch(e.target.value)} /></div><div className="filters">{(['all', 'new', 'in_progress', 'resolved'] as const).map(item => <button key={item} className={status === item ? 'filter active' : 'filter'} onClick={() => setStatus(item)}>{item === 'all' ? 'All inquiries' : labels[item]}</button>)}</div></section><section className="content-grid"><div className="list-panel"><div className="panel-heading"><span>{loading ? 'Loading...' : `${visible.length} ${visible.length === 1 ? 'inquiry' : 'inquiries'}`}</span><span className="scope">Assigned to you</span></div>{loading ? <div className="empty-state">Loading your inquiries...</div> : visible.length === 0 ? <div className="empty-state"><MessageSquarePlus size={28} /><strong>No inquiries here</strong><span>Try another filter or capture a new customer request.</span></div> : visible.map(item => <button className={selected?.id === item.id ? 'inquiry-row selected' : 'inquiry-row'} key={item.id} onClick={() => setSelected(item)}><div className="row-main"><strong>{item.subject}</strong><span>{item.customerName}</span></div><span className={`status status-${item.status}`}>{labels[item.status]}</span><ChevronRight size={17} /></button>)}</div><div className="detail-panel">{selected ? <Detail inquiry={selected} onChange={changeStatus} /> : <div className="detail-empty"><div className="detail-icon">✦</div><h2>Select an inquiry</h2><p className="muted">Choose a request from the list to see its details and move it forward.</p></div>}</div></section></main>{showForm && <InquiryForm onCancel={() => setShowForm(false)} onSubmit={createInquiry} />}</div>;
 }
 

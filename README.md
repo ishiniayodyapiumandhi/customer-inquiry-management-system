@@ -19,6 +19,8 @@ Prerequisites: Node.js 20+, npm, and Docker Desktop.
 docker compose up -d
 ```
 
+Docker maps PostgreSQL to host port `5433` to avoid conflicts with an existing local PostgreSQL installation. The backend `.env.example` already uses that port.
+
 2. Install and start the API:
 
 ```powershell
