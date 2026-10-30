@@ -57,6 +57,3 @@ npm run build
 
 The backend tests cover independent input validation. The frontend test covers the failed-login feedback state. The remaining gap is a live PostgreSQL/API integration test; the API contract is small enough to add one with a disposable database in a production CI setup.
 
-## Submission notes
-
-See [DECISIONS.md](DECISIONS.md) for assumptions, trade-offs, stale data handling, and AI-use transparency. A screen recording should demonstrate sign-in, creating an inquiry, filtering/opening it, changing status, and one invalid form/login case.
